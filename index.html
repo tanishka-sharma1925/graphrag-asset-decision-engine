@@ -1,0 +1,2196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BIAL HVAC Fleet — AI Decision Support</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <style>
+        /* ── reset & base ── */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        :root {
+            --bg-deep: #0A1420;
+            --bg-panel: #101E30;
+            --bg-panel-raised: #16273C;
+            --grid-line: #1C3350;
+            --stroke-building: #3D6A9C;
+            --accent-replace: #FF6B4A;
+            --accent-repair: #4FD8A8;
+            --accent-flag: #F5C451;
+            --accent-neutral: #6B7F94;
+            --accent-primary: #4FA3D8;
+            --text-primary: #EAF1F8;
+            --text-muted: #7E93AC;
+            --text-faint: #4A5D75;
+            --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.5);
+            --radius-card: 12px;
+            --transition-smooth: 0.25s ease;
+        }
+
+        body {
+            background: var(--bg-deep);
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+            height: 100vh;
+            overflow: hidden;
+            background-image:
+                repeating-linear-gradient(0deg, var(--grid-line) 0px, transparent 1px, transparent 40px, var(--grid-line) 41px),
+                repeating-linear-gradient(90deg, var(--grid-line) 0px, transparent 1px, transparent 40px, var(--grid-line) 41px);
+            background-size: 41px 41px;
+            background-blend-mode: screen;
+        }
+
+        /* ── scrollbar ── */
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: var(--bg-deep);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: var(--grid-line);
+            border-radius: 2px;
+        }
+
+        /* ── app grid ── */
+        #app {
+            display: grid;
+            grid-template-columns: 1fr 420px;
+            grid-template-rows: 64px 1fr;
+            height: 100vh;
+            position: relative;
+        }
+
+        /* ── header ── */
+        header {
+            grid-column: 1 / 3;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+            border-bottom: 1px solid var(--grid-line);
+            background: rgba(10, 20, 32, 0.85);
+            backdrop-filter: blur(6px);
+            z-index: 20;
+        }
+
+        .brand {
+            display: flex;
+            align-items: baseline;
+            gap: 12px;
+        }
+        .brand .eyebrow {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            letter-spacing: 0.14em;
+            color: var(--accent-repair);
+            text-transform: uppercase;
+            border: 1px solid var(--accent-repair);
+            padding: 2px 8px;
+            border-radius: 2px;
+        }
+        .brand h1 {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 17px;
+            font-weight: 600;
+            letter-spacing: -0.01em;
+        }
+
+        .stat-strip {
+            display: flex;
+            gap: 18px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            align-items: center;
+        }
+        .stat-strip .stat {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--text-muted);
+        }
+        .stat-strip .stat b {
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+        .stat-strip .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+        .dot.neutral {
+            background: var(--accent-neutral);
+        }
+        .dot.replace {
+            background: var(--accent-replace);
+        }
+        .dot.repair {
+            background: var(--accent-repair);
+        }
+        .dot.flag {
+            background: var(--accent-flag);
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        #graph-toggle-btn {
+            background: var(--bg-panel-raised);
+            border: 1px solid var(--grid-line);
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            letter-spacing: 0.04em;
+            padding: 6px 14px;
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: var(--transition-smooth);
+        }
+        #graph-toggle-btn:hover {
+            color: var(--accent-repair);
+            border-color: var(--accent-repair);
+        }
+        #graph-toggle-btn.active {
+            color: var(--accent-primary);
+            border-color: var(--accent-primary);
+        }
+
+        /* ── map ── */
+        #map {
+            height: 100%;
+            background: transparent;
+        }
+        .leaflet-container {
+            background: transparent;
+        }
+        .leaflet-control-attribution {
+            display: none !important;
+        }
+
+        /* ── analysis panel ── */
+        aside {
+            background: var(--bg-panel);
+            border-left: 1px solid var(--grid-line);
+            overflow-y: auto;
+            padding: 22px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            position: relative;
+        }
+
+        .panel-title {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: 0.01em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+        .panel-title .badge-panel {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 9px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            padding: 2px 8px;
+            border-radius: 3px;
+            background: var(--bg-panel-raised);
+            color: var(--text-faint);
+            border: 1px solid var(--grid-line);
+        }
+
+        /* ── empty state ── */
+        .empty-state {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-muted);
+            text-align: center;
+            padding: 20px 0;
+        }
+        .empty-state .icon-big {
+            font-size: 42px;
+            margin-bottom: 12px;
+            opacity: 0.5;
+        }
+        .empty-state h3 {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 16px;
+            font-weight: 500;
+            color: var(--text-primary);
+            margin-bottom: 6px;
+        }
+        .empty-state p {
+            font-size: 13px;
+            line-height: 1.6;
+            max-width: 280px;
+        }
+
+        /* ── asset selector ── */
+        .asset-selector {
+            display: flex;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+        .asset-selector select {
+            flex: 1;
+            background: var(--bg-panel-raised);
+            border: 1px solid var(--grid-line);
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            padding: 8px 10px;
+            border-radius: 4px;
+            outline: none;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+        }
+        .asset-selector select:focus {
+            border-color: var(--accent-primary);
+        }
+        .asset-selector select option {
+            background: var(--bg-panel);
+        }
+
+        /* ── selected asset info ── */
+        .asset-summary {
+            background: var(--bg-panel-raised);
+            border-radius: var(--radius-card);
+            padding: 14px 16px;
+            display: none;
+            flex-direction: column;
+            gap: 4px;
+            border: 1px solid var(--grid-line);
+            transition: var(--transition-smooth);
+            flex-shrink: 0;
+        }
+        .asset-summary.visible {
+            display: flex;
+        }
+        .asset-summary .tag-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .asset-summary .tag {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 16px;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .asset-summary .tag .graph-icon {
+            font-size: 14px;
+            opacity: 0.6;
+            transition: var(--transition-smooth);
+        }
+        .asset-summary .tag:hover .graph-icon {
+            opacity: 1;
+            color: var(--accent-primary);
+        }
+        .asset-summary .sub {
+            font-size: 12.5px;
+            color: var(--text-muted);
+            line-height: 1.5;
+        }
+        .asset-summary .loc {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--text-faint);
+            margin-top: 2px;
+        }
+
+        /* ── question input ── */
+        .question-area {
+            display: none;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 2px;
+            flex-shrink: 0;
+        }
+        .question-area.visible {
+            display: flex;
+        }
+
+        .question-area label {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-muted);
+            letter-spacing: 0.02em;
+        }
+
+        .question-row {
+            display: flex;
+            gap: 8px;
+        }
+        .question-row textarea {
+            flex: 1;
+            background: var(--bg-panel-raised);
+            border: 1px solid var(--grid-line);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+            font-size: 13px;
+            padding: 10px 12px;
+            resize: none;
+            min-height: 48px;
+            line-height: 1.5;
+            transition: var(--transition-smooth);
+            outline: none;
+        }
+        .question-row textarea:focus {
+            border-color: var(--accent-primary);
+        }
+        .question-row textarea::placeholder {
+            color: var(--text-faint);
+        }
+
+        .btn-analyze {
+            background: var(--accent-primary);
+            color: var(--bg-deep);
+            border: none;
+            border-radius: 4px;
+            padding: 0 20px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+            white-space: nowrap;
+            min-height: 48px;
+        }
+        .btn-analyze:hover {
+            filter: brightness(1.15);
+        }
+        .btn-analyze:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .example-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 2px;
+        }
+        .example-chips button {
+            background: var(--bg-panel-raised);
+            border: 1px solid var(--grid-line);
+            color: var(--text-muted);
+            font-family: 'Inter', sans-serif;
+            font-size: 11px;
+            padding: 4px 10px;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+        }
+        .example-chips button:hover {
+            border-color: var(--accent-primary);
+            color: var(--text-primary);
+        }
+
+        /* ── loading state ── */
+        .loading-state {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 24px 0;
+            gap: 12px;
+        }
+        .loading-state.visible {
+            display: flex;
+        }
+        .spinner {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            border: 3px solid var(--grid-line);
+            border-top-color: var(--accent-primary);
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+        .loading-state p {
+            font-size: 13px;
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+            letter-spacing: 0.04em;
+        }
+
+        /* ── results ── */
+        .results {
+            display: none;
+            flex-direction: column;
+            gap: 14px;
+            padding-top: 4px;
+            animation: fadeUp 0.35s ease;
+            flex-shrink: 0;
+        }
+        .results.visible {
+            display: flex;
+        }
+
+        @keyframes fadeUp {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .result-recommendation {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 12px 16px;
+            border-radius: var(--radius-card);
+            background: var(--bg-panel-raised);
+            border-left: 4px solid var(--accent-neutral);
+        }
+        .result-recommendation .rec-label {
+            font-size: 12px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+        .result-recommendation .rec-value {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 22px;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+        .result-recommendation .rec-value.replace {
+            color: var(--accent-replace);
+        }
+        .result-recommendation .rec-value.repair {
+            color: var(--accent-repair);
+        }
+        .result-recommendation .rec-badge {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            padding: 3px 10px;
+            border-radius: 3px;
+            background: var(--bg-panel);
+            border: 1px solid var(--grid-line);
+            color: var(--text-faint);
+        }
+
+        .result-section {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .result-section .section-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--text-faint);
+            border-bottom: 1px solid var(--grid-line);
+            padding-bottom: 5px;
+        }
+
+        .rule-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            padding-top: 2px;
+        }
+        .rule-chip {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10.5px;
+            padding: 4px 9px;
+            background: var(--bg-panel-raised);
+            border: 1px solid var(--grid-line);
+            border-radius: 3px;
+            color: var(--text-muted);
+        }
+        .rule-chip.empty {
+            color: var(--text-faint);
+            border-style: dashed;
+        }
+        .rule-chip.clickable {
+            cursor: pointer;
+            color: var(--accent-primary);
+            border-color: var(--accent-primary);
+        }
+        .rule-chip.clickable:hover {
+            background: rgba(79, 163, 216, 0.15);
+        }
+
+        .cost-compare {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            padding-top: 2px;
+        }
+        .cost-bar-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+        }
+        .cost-bar-label {
+            width: 56px;
+            color: var(--text-muted);
+            flex-shrink: 0;
+        }
+        .cost-bar-track {
+            flex: 1;
+            height: 7px;
+            background: var(--bg-panel-raised);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        .cost-bar-fill {
+            height: 100%;
+            border-radius: 2px;
+            transition: width 0.5s ease;
+        }
+        .cost-bar-fill.repair-cost {
+            background: var(--accent-flag);
+        }
+        .cost-bar-fill.replace-cost {
+            background: var(--accent-replace);
+        }
+        .cost-bar-value {
+            width: 70px;
+            text-align: right;
+            color: var(--text-primary);
+            flex-shrink: 0;
+            font-size: 11px;
+        }
+
+        .llm-block {
+            background: var(--bg-panel-raised);
+            border-left: 2px solid var(--accent-primary);
+            padding: 12px 14px;
+            border-radius: 0 4px 4px 0;
+            margin-top: 2px;
+        }
+        .llm-block p {
+            font-size: 12.5px;
+            line-height: 1.7;
+            color: var(--text-primary);
+        }
+        .llm-block .llm-model {
+            margin-top: 6px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            color: var(--text-faint);
+        }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4px 16px;
+            font-size: 12px;
+            line-height: 1.8;
+            padding-top: 2px;
+        }
+        .detail-grid .key {
+            color: var(--text-faint);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10.5px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .detail-grid .value {
+            color: var(--text-primary);
+            text-align: right;
+        }
+
+        .flag-banner {
+            font-size: 11.5px;
+            color: var(--accent-flag);
+            background: rgba(245, 196, 81, 0.1);
+            border: 1px solid rgba(245, 196, 81, 0.35);
+            border-radius: 4px;
+            padding: 8px 12px;
+            line-height: 1.5;
+        }
+
+        /* ── chat toggle ── */
+        #chat-toggle {
+            position: absolute;
+            bottom: 18px;
+            right: 438px;
+            z-index: 600;
+            background: var(--bg-panel-raised);
+            border: 1px solid var(--accent-repair);
+            color: var(--accent-repair);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            letter-spacing: 0.05em;
+            padding: 10px 18px;
+            border-radius: 20px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+            transition: var(--transition-smooth);
+        }
+        #chat-toggle:hover {
+            background: rgba(79, 216, 168, 0.12);
+        }
+
+        /* ── chat panel ── */
+        #chat-panel {
+            position: absolute;
+            bottom: 18px;
+            right: 438px;
+            width: 370px;
+            height: 480px;
+            background: var(--bg-panel);
+            border: 1px solid var(--grid-line);
+            border-radius: 8px;
+            z-index: 600;
+            display: none;
+            flex-direction: column;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+        }
+        #chat-panel.open {
+            display: flex;
+        }
+
+        .chat-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--grid-line);
+            flex-shrink: 0;
+        }
+        .chat-header .title {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 13px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .chat-header .status-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--text-faint);
+            display: inline-block;
+        }
+        .chat-header .status-dot.online {
+            background: var(--accent-repair);
+        }
+        .chat-header .status-dot.offline {
+            background: var(--accent-replace);
+        }
+
+        .chat-header-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        #chat-new {
+            background: none;
+            border: 1px solid var(--grid-line);
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            letter-spacing: 0.04em;
+            padding: 4px 10px;
+            border-radius: 3px;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+        }
+        #chat-new:hover {
+            color: var(--accent-repair);
+            border-color: var(--accent-repair);
+        }
+        #chat-close {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 18px;
+            line-height: 1;
+        }
+        #chat-close:hover {
+            color: var(--text-primary);
+        }
+
+        #chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .chat-msg {
+            font-size: 12.5px;
+            line-height: 1.6;
+            max-width: 92%;
+        }
+        .chat-msg.user {
+            align-self: flex-end;
+            background: var(--bg-panel-raised);
+            padding: 8px 12px;
+            border-radius: 10px 10px 2px 10px;
+            color: var(--text-primary);
+        }
+        .chat-msg.assistant {
+            align-self: flex-start;
+            color: var(--text-primary);
+        }
+        .chat-msg.assistant .retrieved-tags {
+            margin-top: 8px;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 5px;
+        }
+        .chat-msg.assistant .retrieved-tags .tags-divider {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 9.5px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-faint);
+            margin: 0 2px 0 4px;
+        }
+        .chat-msg.assistant .retrieved-tags span.tag-asked,
+        .chat-msg.assistant .retrieved-tags span.tag-related {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 3px;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+        }
+        .chat-msg.assistant .retrieved-tags span.tag-asked {
+            color: var(--accent-repair);
+            background: rgba(79, 216, 168, 0.15);
+            border: 1px solid rgba(79, 216, 168, 0.45);
+            font-weight: 600;
+        }
+        .chat-msg.assistant .retrieved-tags span.tag-asked:hover {
+            background: rgba(79, 216, 168, 0.3);
+        }
+        .chat-msg.assistant .retrieved-tags span.tag-related {
+            color: var(--text-muted);
+            background: var(--bg-panel-raised);
+            border: 1px solid var(--grid-line);
+        }
+        .chat-msg.assistant .retrieved-tags span.tag-related:hover {
+            color: var(--accent-repair);
+            border-color: rgba(79, 216, 168, 0.45);
+        }
+        .chat-msg.error {
+            color: var(--accent-replace);
+        }
+        .chat-msg.thinking {
+            color: var(--text-faint);
+            font-style: italic;
+        }
+
+        #chat-input-row {
+            display: flex;
+            gap: 8px;
+            padding: 10px 12px;
+            border-top: 1px solid var(--grid-line);
+            flex-shrink: 0;
+        }
+        #chat-input {
+            flex: 1;
+            background: var(--bg-panel-raised);
+            border: 1px solid var(--grid-line);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+            font-size: 12.5px;
+            padding: 8px 10px;
+            resize: none;
+            outline: none;
+            min-height: 38px;
+        }
+        #chat-input:focus {
+            border-color: var(--accent-repair);
+        }
+        #chat-send {
+            background: var(--accent-repair);
+            color: var(--bg-deep);
+            border: none;
+            border-radius: 4px;
+            padding: 0 16px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+            min-height: 38px;
+        }
+        #chat-send:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        #chat-send:hover:not(:disabled) {
+            filter: brightness(1.15);
+        }
+
+        /* ── Graph Overlay (full-screen) ── */
+        #graph-overlay {
+            position: fixed;
+            inset: 0;
+            background: var(--bg-deep);
+            z-index: 1000;
+            display: none;
+            flex-direction: column;
+            padding: 0;
+        }
+        #graph-overlay.open {
+            display: flex;
+        }
+
+        .go-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 24px;
+            border-bottom: 1px solid var(--grid-line);
+            background: rgba(10, 20, 32, 0.85);
+            flex-shrink: 0;
+        }
+        .go-header-left {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+        .go-title {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 15px;
+            font-weight: 600;
+        }
+        .go-close {
+            background: none;
+            border: 1px solid var(--grid-line);
+            color: var(--text-muted);
+            padding: 7px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            transition: var(--transition-smooth);
+        }
+        .go-close:hover {
+            color: var(--text-primary);
+            border-color: var(--text-muted);
+        }
+
+        .go-body {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 1fr 340px;
+            overflow: hidden;
+        }
+        #go-canvas {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            overflow: auto;
+        }
+        .go-svg {
+            width: 100%;
+            max-width: 900px;
+            height: auto;
+        }
+        .go-loading {
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+        }
+        #go-node-info {
+            background: var(--bg-panel);
+            border-left: 1px solid var(--grid-line);
+            padding: 22px;
+            overflow-y: auto;
+        }
+        #go-node-info .empty {
+            color: var(--text-faint);
+            text-align: center;
+            padding: 40px 0;
+            font-size: 13px;
+        }
+
+        .ge-node {
+            cursor: pointer;
+        }
+        .ge-node circle {
+            transition: filter 0.15s;
+        }
+        .ge-node:hover circle {
+            filter: brightness(1.35);
+        }
+        .ge-edge-label {
+            fill: var(--text-faint);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 9.5px;
+            letter-spacing: 0.04em;
+        }
+        .ge-node-label {
+            fill: var(--text-primary);
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .ge-node-sub {
+            fill: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 9px;
+        }
+        .ge-prop-list {
+            display: flex;
+            flex-direction: column;
+        }
+        .ge-prop-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            font-size: 11.5px;
+            padding: 7px 0;
+            border-bottom: 1px solid var(--grid-line);
+        }
+        .ge-prop-key {
+            color: var(--text-faint);
+            font-family: 'JetBrains Mono', monospace;
+            flex-shrink: 0;
+        }
+        .ge-prop-val {
+            color: var(--text-primary);
+            text-align: right;
+            word-break: break-word;
+        }
+
+        /* ── responsive ── */
+        @media (max-width: 1100px) {
+            #app {
+                grid-template-columns: 1fr 340px;
+            }
+            aside {
+                padding: 16px;
+            }
+            #chat-toggle {
+                right: 358px;
+            }
+            #chat-panel {
+                right: 358px;
+                width: 320px;
+                height: 420px;
+            }
+        }
+
+        @media (max-width: 820px) {
+            #app {
+                grid-template-columns: 1fr;
+                grid-template-rows: 56px 1fr 420px;
+            }
+            aside {
+                border-left: none;
+                border-top: 1px solid var(--grid-line);
+                padding: 14px 16px;
+                max-height: 420px;
+            }
+            #chat-toggle {
+                right: 16px;
+                bottom: 436px;
+            }
+            #chat-panel {
+                right: 16px;
+                bottom: 436px;
+                width: 300px;
+                height: 380px;
+            }
+            .stat-strip .stat.hide-mobile {
+                display: none;
+            }
+            .go-body {
+                grid-template-columns: 1fr;
+                grid-template-rows: 1fr 280px;
+            }
+            #go-node-info {
+                border-left: none;
+                border-top: 1px solid var(--grid-line);
+            }
+        }
+
+        @media (max-width: 600px) {
+            header {
+                padding: 0 12px;
+                flex-wrap: wrap;
+                height: auto;
+                min-height: 56px;
+                gap: 6px;
+            }
+            .brand h1 {
+                font-size: 13px;
+            }
+            .stat-strip {
+                font-size: 10px;
+                gap: 10px;
+                flex-wrap: wrap;
+            }
+            .stat-strip .stat b {
+                font-size: 12px;
+            }
+            #graph-toggle-btn {
+                font-size: 10px;
+                padding: 4px 10px;
+            }
+            #app {
+                grid-template-rows: auto 1fr 360px;
+            }
+            aside {
+                max-height: 360px;
+                padding: 12px;
+            }
+            .question-row {
+                flex-direction: column;
+            }
+            .btn-analyze {
+                min-height: 40px;
+                padding: 8px;
+            }
+            .detail-grid {
+                grid-template-columns: 1fr;
+                gap: 2px;
+            }
+            .detail-grid .value {
+                text-align: left;
+            }
+            #chat-panel {
+                width: 280px;
+                height: 340px;
+                bottom: 380px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="app">
+
+        <!-- ─── HEADER ─── -->
+        <header>
+            <div class="brand">
+                <span class="eyebrow">BIAL &middot; Facilities</span>
+                <h1>HVAC Fleet — Decision Support</h1>
+            </div>
+            <div class="stat-strip" id="stat-strip"></div>
+            <div class="header-actions">
+                <button id="graph-toggle-btn" onclick="toggleGraphOverlay()">
+                    <span>&#9737;</span> <span id="graph-toggle-label">Show Graph</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- ─── MAP ─── -->
+        <div id="map"></div>
+
+        <!-- ─── CHAT TOGGLE ─── -->
+        <button id="chat-toggle" onclick="toggleChat()">
+            <span>&#9673;</span> Ask the fleet
+        </button>
+
+        <!-- ─── CHAT PANEL ─── -->
+        <div id="chat-panel">
+            <div class="chat-header">
+                <span class="title">
+                    <span class="status-dot" id="chat-status-dot"></span>
+                    Fleet Q&amp;A
+                </span>
+                <div class="chat-header-actions">
+                    <button id="chat-new" onclick="startNewConversation()">New</button>
+                    <button id="chat-close" onclick="toggleChat()">&times;</button>
+                </div>
+            </div>
+            <div id="chat-messages">
+                <div class="chat-msg assistant">
+                    Ask me anything about the fleet — e.g. "Which assets need replacing first?" or name a specific tag.
+                </div>
+            </div>
+            <div id="chat-input-row">
+                <textarea id="chat-input" rows="1" placeholder="Ask a question..."></textarea>
+                <button id="chat-send" onclick="sendChatMessage()">Ask</button>
+            </div>
+        </div>
+
+        <!-- ─── ANALYSIS PANEL ─── -->
+        <aside id="detail-panel">
+            <!-- title -->
+            <div class="panel-title">
+                <span>Asset Analysis</span>
+                <span class="badge-panel">AI-assisted</span>
+            </div>
+
+            <!-- empty state -->
+            <div class="empty-state" id="empty-state">
+                <div class="icon-big">&#128220;</div>
+                <h3>Select an asset to begin</h3>
+                <p>Click a marker on the map, search by ID, or choose from the dropdown below.</p>
+            </div>
+
+            <!-- asset selector -->
+            <div class="asset-selector" id="asset-selector-wrap">
+                <select id="asset-select" onchange="onAssetSelect(this.value)">
+                    <option value="">— Select an asset —</option>
+                </select>
+            </div>
+
+            <!-- asset summary -->
+            <div class="asset-summary" id="asset-summary">
+                <div class="tag-row">
+                    <span class="tag" id="asset-tag" onclick="toggleGraphOverlay()">
+                        <span id="asset-tag-text">—</span>
+                        <span class="graph-icon">&#128065;</span>
+                    </span>
+                    <span id="asset-status-badge" style="font-family:'JetBrains Mono',monospace;font-size:10px;padding:2px 8px;border-radius:3px;background:var(--bg-panel);border:1px solid var(--grid-line);color:var(--text-faint);">Not analyzed</span>
+                </div>
+                <div class="sub" id="asset-type">—</div>
+                <div class="loc" id="asset-location">—</div>
+            </div>
+
+            <!-- question area -->
+            <div class="question-area" id="question-area">
+                <label>Ask a question about this asset</label>
+                <div class="question-row">
+                    <textarea id="question-input" rows="1" placeholder="e.g. Should this be repaired or replaced?"></textarea>
+                    <button class="btn-analyze" id="btn-analyze" onclick="analyzeAsset()">Analyze</button>
+                </div>
+                <div class="example-chips">
+                    <button onclick="setQuestion('Should this asset be repaired or replaced?')">Repair or replace?</button>
+                    <button onclick="setQuestion('Why is this asset performing poorly?')">Why is it performing poorly?</button>
+                    <button onclick="setQuestion('Explain the condition of this asset.')">Explain condition</button>
+                    <button onclick="setQuestion('What rules were triggered for this asset?')">What rules triggered?</button>
+                </div>
+            </div>
+
+            <!-- loading -->
+            <div class="loading-state" id="loading-state">
+                <div class="spinner"></div>
+                <p>Analyzing asset …</p>
+            </div>
+
+            <!-- results -->
+            <div class="results" id="results">
+                <!-- filled dynamically -->
+            </div>
+        </aside>
+
+    </div>
+
+    <!-- ─── GRAPH OVERLAY (full-screen) ─── -->
+    <div id="graph-overlay">
+        <div class="go-header">
+            <div class="go-header-left">
+                <span class="go-title">Knowledge Graph</span>
+                <span id="go-asset-label" style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--text-muted);"></span>
+            </div>
+            <button class="go-close" onclick="toggleGraphOverlay()">&times; Close</button>
+        </div>
+        <div class="go-body">
+            <div id="go-canvas">
+                <div class="go-loading">Select an asset to view its graph.</div>
+            </div>
+            <div id="go-node-info">
+                <div class="empty">Click a node in the graph to see its properties.</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── SCRIPTS ─── -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js">
+    </script>
+    <script>
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        //  GLOBALS
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+        let allAssets = [];
+        let analyzedAssets = {};
+        let selectedTag = null;
+        let map = null;
+        let markers = {};
+        let isAnalyzing = false;
+
+        const CHAT_BACKEND = 'http://127.0.0.1:5001';
+        const BUILDING_BOUNDS = {
+            1: [
+                [0, 0],
+                [500, 500]
+            ],
+            2: [
+                [500, 0],
+                [1000, 500]
+            ],
+            3: [
+                [0, 500],
+                [500, 1000]
+            ],
+            4: [
+                [500, 500],
+                [1000, 1000]
+            ],
+        };
+
+        let chatHistory = [];
+        let lastFocusTags = [];
+
+        // Graph state
+        let currentGraphNodes = {};
+        let graphOverlayOpen = false;
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        //  HELPERS
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+        function toLatLng(x, y) {
+            return [1000 - y, x];
+        }
+
+        function fmtMoney(n) {
+            if (n == null) return '—';
+            return '$' + Math.round(n).toLocaleString();
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const d = document.createElement('div');
+            d.textContent = text;
+            return d.innerHTML;
+        }
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        //  INIT
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+        async function init() {
+            try {
+                const res = await fetch('assets.json');
+                allAssets = await res.json();
+            } catch (e) {
+                console.error('Failed to load assets.json', e);
+                allAssets = [];
+            }
+
+            allAssets.sort((a, b) => (a.tag || '').localeCompare(b.tag || ''));
+
+            renderStats();
+            populateSelectors();
+            renderMap();
+            updateUI();
+
+            checkBackendHealth();
+            setInterval(checkBackendHealth, 30000);
+        }
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        //  STATS
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+        function renderStats() {
+            const total = allAssets.length;
+            const analyzedCount = Object.keys(analyzedAssets).length;
+            const replaceCount = Object.values(analyzedAssets).filter(a => a.recommendation === 'REPLACE').length;
+            const repairCount = Object.values(analyzedAssets).filter(a => a.recommendation === 'REPAIR').length;
+
+            document.getElementById('stat-strip').innerHTML = `
+            <div class="stat">Assets <b>${total}</b></div>
+            <div class="stat">Analyzed <b>${analyzedCount}</b></div>
+            <div class="stat"><span class="dot replace"></span>REPLACE <b>${replaceCount}</b></div>
+            <div class="stat"><span class="dot repair"></span>REPAIR <b>${repairCount}</b></div>
+            <div class="stat hide-mobile"><span class="dot neutral"></span>Pending <b>${total - analyzedCount}</b></div>
+          `;
+        }
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        //  SELECTORS
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+        function populateSelectors() {
+            const sel = document.getElementById('asset-select');
+            const opts = allAssets.map(a =>
+                `<option value="${a.tag}">${a.tag} — ${a.equipment_type || ''}</option>`
+            ).join('');
+            sel.innerHTML = `<option value="">— Select an asset —</option>` + opts;
+        }
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        //  MAP
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+        function renderMap() {
+            map = L.map('map', {
+                crs: L.CRS.Simple,
+                minZoom: -2,
+                maxZoom: 3,
+                zoomSnap: 0.25,
+                attributionControl: false,
+            });
+
+            // Building outlines
+            Object.entries(BUILDING_BOUNDS).forEach(([bldgNum, bounds]) => {
+                const corners = bounds.map(([x, y]) => toLatLng(x, y));
+                const latLngBounds = L.latLngBounds(corners);
+                L.rectangle(latLngBounds, {
+                    color: '#3D6A9C',
+                    weight: 1.5,
+                    dashArray: '6 5',
+                    fillColor: '#16273C',
+                    fillOpacity: 0.35,
+                }).addTo(map);
+                const center = latLngBounds.getCenter();
+                L.marker(center, {
+                    icon: L.divIcon({
+                        className: 'building-label-icon',
+                        html: `Building ${bldgNum}`,
+                        iconSize: [100, 20],
+                    }),
+                    interactive: false,
+                }).addTo(map);
+            });
+
+            // Asset markers — all neutral initially
+            allAssets.forEach(asset => {
+                const latlng = toLatLng(asset.x, asset.y);
+                const isAnalyzed = !!analyzedAssets[asset.tag];
+                const rec = isAnalyzed ? analyzedAssets[asset.tag].recommendation : null;
+                let color = '#6B7F94';
+                if (isAnalyzed && rec === 'REPLACE') color = '#FF6B4A';
+                else if (isAnalyzed && rec === 'REPAIR') color = '#4FD8A8';
+
+                const radius = asset.criticality === 'High' ? 9 :
+                    asset.criticality === 'Medium' ? 7 : 5.5;
+
+                if (isAnalyzed && analyzedAssets[asset.tag].flagged_for_review) {
+                    L.circleMarker(latlng, {
+                        radius: radius + 6,
+                        color: '#F5C451',
+                        weight: 1,
+                        dashArray: '3 3',
+                        fill: false,
+                        opacity: 0.7,
+                        interactive: false,
+                    }).addTo(map);
+                }
+
+                const marker = L.circleMarker(latlng, {
+                    radius: radius,
+                    color: '#0A1420',
+                    weight: 1.5,
+                    fillColor: color,
+                    fillOpacity: 0.9,
+                }).addTo(map);
+
+                marker.on('click', function(e) {
+                    L.DomEvent.stopPropagation(e);
+                    selectAsset(asset.tag);
+                });
+
+                marker.bindTooltip(asset.tag, {
+                    direction: 'top',
+                    offset: [0, -radius],
+                    className: 'asset-tooltip',
+                });
+
+                markers[asset.tag] = marker;
+            });
+
+            // Legend
+            const legend = L.control({ position: 'bottomleft' });
+            legend.onAdd = function() {
+                const div = L.DomUtil.create('div', 'map-legend');
+                div.innerHTML = `
+              <div class="legend-row"><span class="legend-swatch" style="background:#6B7F94"></span>Not analyzed</div>
+              <div class="legend-row"><span class="legend-swatch" style="background:#FF6B4A"></span>Replace recommended</div>
+              <div class="legend-row"><span class="legend-swatch" style="background:#4FD8A8"></span>Repair recommended</div>
+              <div class="legend-row"><span class="legend-swatch" style="border:1.5px dashed #F5C451;background:transparent;border-radius:50%"></span>Flagged for review</div>
+            `;
+                return div;
+            };
+            legend.addTo(map);
+
+            map.fitBounds(L.latLngBounds([toLatLng(0, 0), toLatLng(1000, 1000)]), { padding: [40, 40] });
+
+            map.on('click', function(e) {
+                if (selectedTag) {
+                    selectedTag = null;
+                    document.getElementById('asset-select').value = '';
+                    updateUI();
+                    // close graph overlay if open
+                    if (graphOverlayOpen) toggleGraphOverlay();
+                }
+            });
+
+            window._map = map;
+        }
+
+        function updateMarkerColor(tag) {
+            const marker = markers[tag];
+            if (!marker) return;
+            const isAnalyzed = !!analyzedAssets[tag];
+            const rec = isAnalyzed ? analyzedAssets[tag].recommendation : null;
+            let color = '#6B7F94';
+            if (isAnalyzed && rec === 'REPLACE') color = '#FF6B4A';
+            else if (isAnalyzed && rec === 'REPAIR') color = '#4FD8A8';
+            marker.setStyle({ fillColor: color });
+        }
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        //  ASSET SELECTION
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+        function selectAsset(tag) {
+            if (!tag) return;
+            const asset = allAssets.find(a => a.tag === tag);
+            if (!asset) return;
+
+            selectedTag = tag;
+            document.getElementById('asset-select').value = tag;
+            updateUI();
+
+            const marker = markers[tag];
+            if (marker) {
+                const latlng = marker.getLatLng();
+                map.setView(latlng, map.getZoom(), { animate: true });
+                marker.openTooltip();
+                marker.setStyle({ weight: 3, color: '#4FD8A8' });
+                setTimeout(() => {
+                    marker.setStyle({ weight: 1.5, color: '#0A1420' });
+                }, 600);
+            }
+
+            // If graph overlay is open, reload graph for new asset
+            if (graphOverlayOpen) {
+                loadGraphForSelected();
+            }
+        }
+
+        function onAssetSelect(val) {
+            if (val) {
+                selectAsset(val);
+            } else {
+                selectedTag = null;
+                updateUI();
+            }
+        }
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        //  UI UPDATE
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+        function updateUI() {
+            const asset = allAssets.find(a => a.tag === selectedTag);
+            const summary = document.getElementById('asset-summary');
+            const questionArea = document.getElementById('question-area');
+            const empty = document.getElementById('empty-state');
+            const results = document.getElementById('results');
+            const loading = document.getElementById('loading-state');
+            const statusBadge = document.getElementById('asset-status-badge');
+
+            results.classList.remove('visible');
+            loading.classList.remove('visible');
+
+            if (!asset) {
+                summary.classList.remove('visible');
+                questionArea.classList.remove('visible');
+                empty.style.display = 'flex';
+                statusBadge.textContent = 'Not analyzed';
+                statusBadge.style.color = 'var(--text-faint)';
+                statusBadge.style.borderColor = 'var(--grid-line)';
+                document.getElementById('asset-tag-text').textContent = '—';
+                document.getElementById('asset-type').textContent = '—';
+                document.getElementById('asset-location').textContent = '—';
+                return;
+            }
+
+            empty.style.display = 'none';
+            summary.classList.add('visible');
+            questionArea.classList.add('visible');
+
+            document.getElementById('asset-tag-text').textContent = asset.tag;
+            document.getElementById('asset-type').textContent =
+                `${asset.equipment_type || ''}  •  ${asset.manufacturer || ''} ${asset.model || ''}`.trim();
+            document.getElementById('asset-location').textContent = asset.location || 'Location not recorded';
+
+            const isAnalyzed = !!analyzedAssets[asset.tag];
+            if (isAnalyzed) {
+                const rec = analyzedAssets[asset.tag].recommendation;
+                statusBadge.textContent = rec;
+                statusBadge.style.color = rec === 'REPLACE' ? 'var(--accent-replace)' : 'var(--accent-repair)';
+                statusBadge.style.borderColor = rec === 'REPLACE' ? 'var(--accent-replace)' : 'var(--accent-repair)';
+            } else {
+                statusBadge.textContent = 'Not analyzed';
+                statusBadge.style.color = 'var(--text-faint)';
+                statusBadge.style.borderColor = 'var(--grid-line)';
+            }
+
+            if (analyzedAssets[asset.tag]) {
+                showResults(asset);
+            } else {
+                results.classList.remove('visible');
+            }
+
+            renderStats();
+        }
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        //  SET QUESTION
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+        function setQuestion(text) {
+            document.getElementById('question-input').value = text;
+            document.getElementById('question-input').focus();
+        }
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        //  ANALYZE ASSET
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+        async function analyzeAsset() {
+            if (isAnalyzing) return;
+            const asset = allAssets.find(a => a.tag === selectedTag);
+            if (!asset) {
+                alert('Please select an asset first.');
+                return;
+            }
+
+            const input = document.getElementById('question-input');
+            const question = input.value.trim();
+            if (!question) {
+                alert('Please ask a question about this asset.');
+                return;
+            }
+
+            isAnalyzing = true;
+            const btn = document.getElementById('btn-analyze');
+            btn.disabled = true;
+            const results = document.getElementById('results');
+            results.classList.remove('visible');
+            const loading = document.getElementById('loading-state');
+            loading.classList.add('visible');
+
+            try {
+                const focusTags = [asset.tag];
+                const res = await fetch(`${CHAT_BACKEND}/ask`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        question,
+                        history: [],
+                        focus_tags: focusTags,
+                    }),
+                });
+
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Analysis failed');
+
+                const answer = data.answer || '';
+                const retrievedTags = data.retrieved_tags || [];
+
+                let recommendation = 'REPAIR';
+                let triggeredRules = 'None';
+                let flaggedForReview = false;
+
+                const upper = answer.toUpperCase();
+                if (upper.includes('REPLACE') && !upper.includes('REPAIR')) {
+                    recommendation = 'REPLACE';
+                } else if (upper.includes('REPAIR') && !upper.includes('REPLACE')) {
+                    recommendation = 'REPAIR';
+                } else {
+                    const stored = asset.recommendation;
+                    if (stored) recommendation = stored;
+                }
+
+                const ruleMatch = answer.match(/Rule\s*\d+/g);
+                if (ruleMatch) {
+                    triggeredRules = ruleMatch.join(', ');
+                } else if (asset.triggered_rules && asset.triggered_rules !== 'None') {
+                    triggeredRules = asset.triggered_rules;
+                }
+
+                if (asset.flagged_for_review || answer.includes('flagged for review') || answer.includes('Rule 8')) {
+                    flaggedForReview = true;
+                }
+
+                analyzedAssets[asset.tag] = {
+                    recommendation: recommendation,
+                    triggered_rules: triggeredRules,
+                    flagged_for_review: flaggedForReview,
+                    llm_explanation: answer,
+                    retrieved_tags: retrievedTags,
+                };
+
+                updateMarkerColor(asset.tag);
+                loading.classList.remove('visible');
+                showResults(asset);
+                renderStats();
+                updateUI();
+
+            } catch (e) {
+                loading.classList.remove('visible');
+                results.classList.remove('visible');
+                alert(`Analysis error: ${e.message}`);
+            } finally {
+                isAnalyzing = false;
+                btn.disabled = false;
+            }
+        }
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        //  SHOW RESULTS
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+        function showResults(asset) {
+            const analysis = analyzedAssets[asset.tag];
+            if (!analysis) return;
+
+            const isReplace = analysis.recommendation === 'REPLACE';
+            const rules = (analysis.triggered_rules || 'None')
+                .split(',')
+                .map(r => r.trim())
+                .filter(r => r && r !== 'None');
+
+            const repairCost = asset.repair_cost || 0;
+            const replaceCost = asset.replacement_cost || 1;
+            const maxCost = Math.max(repairCost, replaceCost);
+            const repairPct = maxCost > 0 ? (repairCost / maxCost) * 100 : 0;
+            const replacePct = maxCost > 0 ? (replaceCost / maxCost) * 100 : 0;
+
+            const container = document.getElementById('results');
+            container.innerHTML = `
+            <div class="result-recommendation" style="border-left-color: ${isReplace ? 'var(--accent-replace)' : 'var(--accent-repair)'}">
+              <div>
+                <div class="rec-label">Decision</div>
+                <div class="rec-value ${isReplace ? 'replace' : 'repair'}">${analysis.recommendation}</div>
+              </div>
+              <span class="rec-badge">${isReplace ? '🔴 Replace' : '🟢 Repair'}</span>
+            </div>
+
+            ${analysis.flagged_for_review ? `
+              <div class="flag-banner">⚠️ Warranty expired on an asset past 60% of its design life — flagged for review regardless of primary recommendation.</div>
+            ` : ''}
+
+            <div class="result-section">
+              <div class="section-label">Triggered Rules</div>
+              <div class="rule-chips">
+                ${rules.length ? rules.map(r => `<span class="rule-chip">${escapeHtml(r)}</span>`).join('') :
+                  '<span class="rule-chip empty">No rules triggered</span>'}
+              </div>
+            </div>
+
+            <div class="result-section">
+              <div class="section-label">Cost Comparison</div>
+              <div class="cost-compare">
+                <div class="cost-bar-row">
+                  <span class="cost-bar-label">Repair</span>
+                  <div class="cost-bar-track"><div class="cost-bar-fill repair-cost" style="width:${repairPct}%"></div></div>
+                  <span class="cost-bar-value">${fmtMoney(repairCost)}</span>
+                </div>
+                <div class="cost-bar-row">
+                  <span class="cost-bar-label">Replace</span>
+                  <div class="cost-bar-track"><div class="cost-bar-fill replace-cost" style="width:${replacePct}%"></div></div>
+                  <span class="cost-bar-value">${fmtMoney(replaceCost)}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="result-section">
+              <div class="section-label">Reasoning</div>
+              <div class="llm-block">
+                <p>${escapeHtml(analysis.llm_explanation || 'No explanation generated.')}</p>
+                <div class="llm-model">Generated by LLM</div>
+              </div>
+            </div>
+
+            <div class="result-section">
+              <div class="section-label">Asset Details</div>
+              <div class="detail-grid">
+                <span class="key">Criticality</span>
+                <span class="value">${asset.criticality || 'Not recorded'}</span>
+                <span class="key">Served Area</span>
+                <span class="value">${asset.served_area || 'Not recorded'}</span>
+                <span class="key">Condition</span>
+                <span class="value">${asset.inspection_result || 'Not recorded'}</span>
+                <span class="key">Work Orders</span>
+                <span class="value">${asset.work_order_count ?? '—'}</span>
+                <span class="key">Major Failures</span>
+                <span class="value">${asset.major_failure_count ?? '—'}</span>
+                <span class="key">Design Life</span>
+                <span class="value">${asset.design_life_years ?? '—'} years</span>
+                <span class="key">MTBF</span>
+                <span class="value">${asset.mtbf_days ?? '—'} days</span>
+                <span class="key">Warranty</span>
+                <span class="value">${asset.warranty_expired === true ? 'Expired' :
+                  asset.warranty_expired === false ? 'Active' :
+                  'Not recorded'}${asset.warranty_expiry_date ? ' (' + asset.warranty_expiry_date + ')' : ''}</span>
+                <span class="key">Purchase Cost</span>
+                <span class="value">${fmtMoney(asset.purchase_cost)}</span>
+                <span class="key">Maintenance Labor</span>
+                <span class="value">${fmtMoney(asset.maintenance_labor_spend)}</span>
+                <span class="key">Parts & Materials</span>
+                <span class="value">${fmtMoney(asset.parts_materials_spend)}</span>
+                <span class="key">Total Cost of Ownership</span>
+                <span class="value">${fmtMoney(asset.total_cost_of_ownership)}</span>
+              </div>
+            </div>
+
+            ${analysis.retrieved_tags && analysis.retrieved_tags.length > 1 ? `
+              <div class="result-section">
+                <div class="section-label">Related Assets</div>
+                <div class="rule-chips">
+                  ${analysis.retrieved_tags.filter(t => t !== asset.tag).map(t =>
+                    `<span class="rule-chip clickable" onclick="selectAsset('${t}')">${t}</span>`
+                  ).join('')}
+                </div>
+              </div>
+            ` : ''}
+          `;
+
+            container.classList.add('visible');
+        }
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        //  GRAPH OVERLAY (full-screen)
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+        function toggleGraphOverlay() {
+            graphOverlayOpen = !graphOverlayOpen;
+            const overlay = document.getElementById('graph-overlay');
+            const btn = document.getElementById('graph-toggle-btn');
+            const label = document.getElementById('graph-toggle-label');
+
+            if (graphOverlayOpen) {
+                overlay.classList.add('open');
+                label.textContent = 'Hide Graph';
+                btn.classList.add('active');
+                // Load graph for current selected asset
+                loadGraphForSelected();
+            } else {
+                overlay.classList.remove('open');
+                label.textContent = 'Show Graph';
+                btn.classList.remove('active');
+                // Clear canvas and info
+                document.getElementById('go-canvas').innerHTML = '<div class="go-loading">Select an asset to view its graph.</div>';
+                document.getElementById('go-node-info').innerHTML = '<div class="empty">Click a node in the graph to see its properties.</div>';
+            }
+        }
+
+        function loadGraphForSelected() {
+            const tag = selectedTag;
+            if (!tag) {
+                document.getElementById('go-canvas').innerHTML = '<div class="go-loading">No asset selected.</div>';
+                document.getElementById('go-node-info').innerHTML = '<div class="empty">Select an asset first.</div>';
+                document.getElementById('go-asset-label').textContent = '';
+                return;
+            }
+            document.getElementById('go-asset-label').textContent = tag;
+            loadGraphOverlay(tag);
+        }
+
+        async function loadGraphOverlay(tag) {
+            const canvas = document.getElementById('go-canvas');
+            canvas.innerHTML = `<div class="go-loading">Traversing graph for ${tag}…</div>`;
+            document.getElementById('go-node-info').innerHTML = '<div class="empty">Loading…</div>';
+
+            try {
+                const res = await fetch(`${CHAT_BACKEND}/asset-graph/${tag}`);
+                const data = await res.json();
+                if (!res.ok) {
+                    canvas.innerHTML = `<div class="go-loading">Error: ${data.error || 'could not load graph'}</div>`;
+                    return;
+                }
+                renderGraphOverlay(data);
+            } catch (e) {
+                canvas.innerHTML =
+                    `<div class="go-loading">Could not reach server.py for graph data. Is it running? (${e.message})</div>`;
+            }
+        }
+
+        function renderGraphOverlay(data) {
+            const { asset, equipment_type, repair, cost } = data;
+            const isReplace = asset.recommendation === 'REPLACE' || asset.engine_recommendation === 'REPLACE';
+            const assetColor = isReplace ? 'var(--accent-replace)' : 'var(--accent-repair)';
+
+            const nodes = [{
+                id: 'asset',
+                x: 300,
+                y: 300,
+                r: 36,
+                color: assetColor,
+                type: 'asset',
+                props: asset,
+                label: asset.assetId,
+                sub: equipment_type ? equipment_type.type_name || '' : '',
+            }, {
+                id: 'equipment_type',
+                x: 90,
+                y: 130,
+                r: 26,
+                color: 'var(--stroke-building)',
+                type: 'equipment_type',
+                props: equipment_type,
+                label: 'EquipmentType',
+                sub: equipment_type ?
+                    `${equipment_type.manufacturer || ''} ${equipment_type.model || ''}`.trim() :
+                    'none',
+            }, {
+                id: 'repair',
+                x: 90,
+                y: 470,
+                r: 26,
+                color: 'var(--accent-flag)',
+                type: 'repair',
+                props: repair,
+                label: 'Repair',
+                sub: repair ? repair.issue_description || '' : 'none',
+            }, ];
+
+            const edges = [
+                { from: 'asset', to: 'equipment_type', label: 'HAS_TYPE' },
+                { from: 'asset', to: 'repair', label: 'UNDERGOES' },
+            ];
+
+            if (cost) {
+                const formatAmount = (v) => v != null ? `$${Number(v).toLocaleString()}` : '—';
+                const subLines = [
+                    `Repair: ${formatAmount(cost.repair_cost)}`,
+                    `Replace: ${formatAmount(cost.replacement_cost)}`,
+                    `Purchase: ${formatAmount(cost.purchase_cost)}`,
+                ];
+                if (cost.maintenance_labor_spend != null) subLines.push(`Labor: ${formatAmount(cost.maintenance_labor_spend)}`);
+                if (cost.parts_materials_spend != null) subLines.push(`Parts: ${formatAmount(cost.parts_materials_spend)}`);
+                if (cost.total_cost_of_ownership != null) subLines.push(`TCO: ${formatAmount(cost.total_cost_of_ownership)}`);
+
+                nodes.push({
+                    id: 'cost',
+                    x: 620,
+                    y: 300,
+                    r: 38,
+                    color: '#4FA3D8',
+                    type: 'cost',
+                    props: cost,
+                    label: 'Cost',
+                    sub: subLines,
+                });
+                edges.push({ from: 'asset', to: 'cost', label: 'HAS_COST' });
+            }
+
+            const byId = Object.fromEntries(nodes.map(n => [n.id, n]));
+
+            // Larger scale for overlay
+            const scale = 0.85;
+            const offsetX = 30;
+            const offsetY = 20;
+
+            function transform(x, y) {
+                return [x * scale + offsetX, y * scale + offsetY];
+            }
+
+            const edgeSvg = edges.map(e => {
+                const a = byId[e.from],
+                    b = byId[e.to];
+                const [x1, y1] = transform(a.x, a.y);
+                const [x2, y2] = transform(b.x, b.y);
+                const mx = (x1 + x2) / 2,
+                    my = (y1 + y2) / 2;
+                return `
+              <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="var(--grid-line)" stroke-width="1.5" />
+              <text x="${mx}" y="${my - 8}" text-anchor="middle" class="ge-edge-label">${e.label}</text>
+            `;
+            }).join('');
+
+            const nodeSvg = nodes.map(n => {
+                const [cx, cy] = transform(n.x, n.y);
+                const subLines = Array.isArray(n.sub) ? n.sub : [n.sub || ''];
+                const subSvg = subLines.map((line, i) => `
+                <text x="${cx}" y="${cy + 13 + i * 13}" text-anchor="middle" class="ge-node-sub">${escapeHtml(line)}</text>
+              `).join('');
+                return `
+              <g class="ge-node" onclick="selectGraphNodeOverlay('${n.id}')">
+                <circle cx="${cx}" cy="${cy}" r="${n.r * scale}" fill="${n.color}" fill-opacity="0.18" stroke="${n.color}" stroke-width="2" />
+                <text x="${cx}" y="${cy - 3}" text-anchor="middle" class="ge-node-label">${escapeHtml(n.label)}</text>
+                ${subSvg}
+              </g>
+            `;
+            }).join('');
+
+            const canvas = document.getElementById('go-canvas');
+            const totalWidth = 800 * scale + 100;
+            const totalHeight = 620 * scale + 80;
+            canvas.innerHTML = `
+            <svg viewBox="0 0 ${totalWidth} ${totalHeight}" class="go-svg">
+              ${edgeSvg}
+              ${nodeSvg}
+            </svg>
+          `;
+
+            currentGraphNodes = Object.fromEntries(nodes.map(n => [n.id, { type: n.type, props: n.props }]));
+            selectGraphNodeOverlay('asset');
+        }
+
+        function selectGraphNodeOverlay(nodeId) {
+            const entry = currentGraphNodes[nodeId];
+            const panel = document.getElementById('go-node-info');
+            if (!entry) return;
+            const { type, props } = entry;
+            if (!props) {
+                panel.innerHTML = `<div class="empty">No ${type.replace('_', ' ')} node found.</div>`;
+                return;
+            }
+
+            const rows = Object.entries(props)
+                .filter(([k]) => k !== 'embedding')
+                .map(([k, v]) => `
+              <div class="ge-prop-row">
+                <span class="ge-prop-key">${escapeHtml(k)}</span>
+                <span class="ge-prop-val">${escapeHtml(String(v))}</span>
+              </div>
+            `).join('');
+
+            panel.innerHTML = `
+            <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-faint);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">${type.replace('_', ' ').toUpperCase()}</div>
+            <div class="ge-prop-list">${rows}</div>
+          `;
+        }
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        //  CHAT
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+        function toggleChat() {
+            const panel = document.getElementById('chat-panel');
+            const toggle = document.getElementById('chat-toggle');
+            const opening = !panel.classList.contains('open');
+            panel.classList.toggle('open');
+            toggle.style.display = opening ? 'none' : 'flex';
+            if (opening) {
+                checkBackendHealth();
+                document.getElementById('chat-input').focus();
+            }
+        }
+
+        async function checkBackendHealth() {
+            const dot = document.getElementById('chat-status-dot');
+            try {
+                const res = await fetch(`${CHAT_BACKEND}/health`, { method: 'GET' });
+                dot.className = res.ok ? 'status-dot online' : 'status-dot offline';
+            } catch (_) {
+                dot.className = 'status-dot offline';
+            }
+        }
+
+        function startNewConversation() {
+            chatHistory = [];
+            lastFocusTags = [];
+            document.getElementById('chat-messages').innerHTML = `
+            <div class="chat-msg assistant">
+              Ask me anything about the fleet — e.g. "Which assets need replacing first?" or name a specific tag.
+            </div>
+          `;
+            document.getElementById('chat-input').focus();
+        }
+
+        function appendChatMessage(role, html) {
+            const container = document.getElementById('chat-messages');
+            const div = document.createElement('div');
+            div.className = `chat-msg ${role}`;
+            div.innerHTML = html;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+            return div;
+        }
+
+        const TAG_PATTERN = /\b[A-Za-z]{2,5}-[A-Za-z0-9]{2,6}-[A-Za-z0-9]{2,10}\b/g;
+
+        async function sendChatMessage() {
+            const input = document.getElementById('chat-input');
+            const question = input.value.trim();
+            if (!question) return;
+
+            const namedTags = new Set((question.match(TAG_PATTERN) || []).map(t => t.toUpperCase()));
+
+            const sendBtn = document.getElementById('chat-send');
+            input.value = '';
+            sendBtn.disabled = true;
+
+            appendChatMessage('user', escapeHtml(question));
+            const thinkingMsg = appendChatMessage('thinking', 'Retrieving relevant assets and reasoning…');
+
+            try {
+                const res = await fetch(`${CHAT_BACKEND}/ask`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        question,
+                        history: chatHistory.slice(-6),
+                        focus_tags: lastFocusTags,
+                    }),
+                });
+                const data = await res.json();
+                thinkingMsg.remove();
+
+                if (!res.ok) {
+                    appendChatMessage('error', `Error: ${data.error || 'Something went wrong.'}`);
+                    return;
+                }
+
+                const retrievedTags = data.retrieved_tags || [];
+                const askedTags = retrievedTags.filter(tag => namedTags.has(tag));
+                const relatedTags = retrievedTags.filter(tag => !namedTags.has(tag));
+
+                const chip = (tag, cls) =>
+                    `<span class="${cls}" onclick="selectAsset('${tag}')">${tag}</span>`;
+
+                let tagsHtml = '';
+                if (askedTags.length) {
+                    tagsHtml = askedTags.map(t => chip(t, 'tag-asked')).join('');
+                    if (relatedTags.length) {
+                        tagsHtml += `<span class="tags-divider">Related</span>` +
+                            relatedTags.map(t => chip(t, 'tag-related')).join('');
+                    }
+                } else {
+                    tagsHtml = retrievedTags.map(t => chip(t, 'tag-related')).join('');
+                }
+
+                appendChatMessage('assistant', `
+              ${escapeHtml(data.answer)}
+              <div class="retrieved-tags">${tagsHtml}</div>
+            `);
+
+                chatHistory.push({ role: 'user', content: question });
+                chatHistory.push({ role: 'assistant', content: data.answer });
+                lastFocusTags = retrievedTags;
+
+                if (askedTags.length === 1) {
+                    selectAsset(askedTags[0]);
+                } else if (askedTags.length > 1) {
+                    selectAsset(askedTags[0]);
+                } else if (retrievedTags.length === 1) {
+                    selectAsset(retrievedTags[0]);
+                }
+
+            } catch (e) {
+                thinkingMsg.remove();
+                appendChatMessage('error', `Error: could not reach the Q&A backend. Is server.py running? (${e.message})`);
+            } finally {
+                sendBtn.disabled = false;
+            }
+        }
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        //  KEYBOARD SHORTCUTS
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+        document.getElementById('question-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                analyzeAsset();
+            }
+        });
+
+        document.getElementById('chat-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendChatMessage();
+            }
+        });
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        //  BOOT
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+        init();
+    </script>
+
+    <style>
+        .map-legend {
+            position: absolute;
+            bottom: 18px;
+            left: 18px;
+            background: rgba(16, 30, 48, 0.9);
+            border: 1px solid var(--grid-line);
+            border-radius: 4px;
+            padding: 10px 14px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            z-index: 500;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            backdrop-filter: blur(4px);
+        }
+        .legend-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text-muted);
+        }
+        .legend-swatch {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .building-label-icon {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            letter-spacing: 0.08em;
+            color: var(--stroke-building);
+            text-transform: uppercase;
+            white-space: nowrap;
+            pointer-events: none;
+        }
+        .asset-tooltip {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            background: rgba(10, 20, 32, 0.85);
+            border: 1px solid var(--grid-line);
+            color: var(--text-primary);
+            padding: 4px 10px;
+            border-radius: 3px;
+        }
+        .leaflet-tooltip-top::before {
+            border-top-color: var(--grid-line) !important;
+        }
+    </style>
+
+</body>
+</html>
